@@ -2,6 +2,7 @@
 
 namespace ArgentCrusade\Selectel\CloudStorage\Api;
 
+use Psr\SimpleCache\CacheInterface;
 use RuntimeException;
 use GuzzleHttp\Client;
 use GuzzleHttp\ClientInterface;
@@ -12,6 +13,7 @@ use ArgentCrusade\Selectel\CloudStorage\Exceptions\AuthenticationFailedException
 class ApiClient implements ApiClientContract
 {
     const AUTH_URL = 'https://auth.selcdn.ru';
+    const CACHE_KEY = 'selectelCloudStorage.apiClient';
 
     /**
      * API Username.
@@ -26,6 +28,11 @@ class ApiClient implements ApiClientContract
      * @var string
      */
     protected $password;
+
+    /**
+     * @var CacheInterface
+     */
+    protected $cache;
 
     /**
      * Authorization token.
@@ -53,11 +60,22 @@ class ApiClient implements ApiClientContract
      *
      * @param string $username
      * @param string $password
+     * @param CacheInterface $cache
      */
     public function __construct($username, $password)
     {
         $this->username = $username;
         $this->password = $password;
+    }
+
+    /**
+     * @param CacheInterface $cache
+     * @return $this
+     */
+    public function setCache(CacheInterface $cache)
+    {
+        $this->cache = $cache;
+        return $this;
     }
 
     /**
@@ -77,6 +95,8 @@ class ApiClient implements ApiClientContract
     /**
      * HTTP Client.
      *
+     * @throws \Psr\SimpleCache\InvalidArgumentException
+     * @throws \GuzzleHttp\Exception\GuzzleException
      * @return \GuzzleHttp\ClientInterface|null
      */
     public function getHttpClient()
@@ -107,9 +127,23 @@ class ApiClient implements ApiClientContract
      * Storage URL.
      *
      * @return string
+     * @throws \GuzzleHttp\Exception\GuzzleException
+     * @throws \Psr\SimpleCache\InvalidArgumentException
      */
     public function storageUrl()
     {
+        if (isset($this->storageUrl)) {
+            return $this->storageUrl;
+        }
+        
+        if (isset($this->cache)) {
+            $this->storageUrl = $this->cache->get(static::CACHE_KEY . '.storageUrl');
+        }
+
+        if (is_null($this->storageUrl)) {
+            $this->authenticate();
+        }
+
         return $this->storageUrl;
     }
 
@@ -128,6 +162,8 @@ class ApiClient implements ApiClientContract
      *
      * @throws \ArgentCrusade\Selectel\CloudStorage\Exceptions\AuthenticationFailedException
      * @throws \RuntimeException
+     * @throws \Psr\SimpleCache\InvalidArgumentException
+     * @throws \GuzzleHttp\Exception\GuzzleException
      */
     public function authenticate()
     {
@@ -147,12 +183,17 @@ class ApiClient implements ApiClientContract
 
         $this->token = $response->getHeaderLine('X-Auth-Token');
         $this->storageUrl = $response->getHeaderLine('X-Storage-Url');
+
+        if (isset($this->cache)) {
+            $this->cache->set(static::CACHE_KEY . '.storageUrl', $this->storageUrl);
+        }
     }
 
     /**
      * Performs authentication request and returns its response.
      *
      * @throws \ArgentCrusade\Selectel\CloudStorage\Exceptions\AuthenticationFailedException
+     * @throws \GuzzleHttp\Exception\GuzzleException
      *
      * @return \Psr\Http\Message\ResponseInterface
      */
@@ -180,6 +221,9 @@ class ApiClient implements ApiClientContract
      * @param string $method
      * @param string $url
      * @param array  $params = []
+     *
+     * @throws \GuzzleHttp\Exception\GuzzleException
+     * @throws \Psr\SimpleCache\InvalidArgumentException
      *
      * @return \Psr\Http\Message\ResponseInterface
      */
