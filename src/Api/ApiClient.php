@@ -2,6 +2,7 @@
 
 namespace ArgentCrusade\Selectel\CloudStorage\Api;
 
+use Carbon\Carbon;
 use Psr\SimpleCache\CacheInterface;
 use RuntimeException;
 use GuzzleHttp\Client;
@@ -13,6 +14,8 @@ use ArgentCrusade\Selectel\CloudStorage\Exceptions\AuthenticationFailedException
 class ApiClient implements ApiClientContract
 {
     const AUTH_URL = 'https://auth.selcdn.ru';
+    const TOKEN_TTL = 86400;
+
     const CACHE_KEY = 'selectelCloudStorage.apiClient';
 
     /**
@@ -33,6 +36,11 @@ class ApiClient implements ApiClientContract
      * @var CacheInterface
      */
     protected $cache;
+
+    /**
+     * @var Carbon
+     */
+    protected $authenticatedAt;
 
     /**
      * Authorization token.
@@ -154,7 +162,8 @@ class ApiClient implements ApiClientContract
      */
     public function authenticated()
     {
-        return !is_null($this->token());
+        return ! is_null($this->token())
+            && $this->authenticatedAt->diffInSeconds(Carbon::now()) < static::TOKEN_TTL;
     }
 
     /**
@@ -167,7 +176,7 @@ class ApiClient implements ApiClientContract
      */
     public function authenticate()
     {
-        if (!is_null($this->token)) {
+        if ($this->authenticated()) {
             return;
         }
 
@@ -182,6 +191,7 @@ class ApiClient implements ApiClientContract
         }
 
         $this->token = $response->getHeaderLine('X-Auth-Token');
+        $this->authenticatedAt = Carbon::now();
         $this->storageUrl = $response->getHeaderLine('X-Storage-Url');
 
         if (isset($this->cache)) {
